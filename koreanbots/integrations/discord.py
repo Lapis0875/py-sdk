@@ -1,3 +1,4 @@
+import asyncio
 from asyncio.events import get_event_loop
 from asyncio.tasks import sleep
 from logging import getLogger
@@ -39,8 +40,27 @@ class DiscordpyKoreanbots(Koreanbots):
         self.include_shard_count = include_shard_count
         super().__init__(api_key, session)
 
-        if run_task:
-            get_event_loop().create_task(self.tasks_send_guildcount())
+        client_ready = getattr(client, "on_ready", None)
+        self.guildcount_sender: Optional[asyncio.Task] = None
+
+        # Set default on_ready handler to start send_guildcount task.
+        if client_ready is not None:
+            async def on_ready():
+                await client_ready()    # call previously registered on_ready handler.
+                self.run_post_guild_count_task()
+        else:
+            async def on_ready():
+                self.run_post_guild_count_task()
+
+        client.event(on_ready)
+
+    @property
+    def is_running(self) -> bool:
+        return self.guildcount_sender is not None and not self.guildcount_sender.done()
+
+    def run_post_guild_count_task(self):
+        if not self.is_running:
+            self.guildcount_sender = self.client.loop.create_task(self.tasks_send_guildcount())
 
     async def tasks_send_guildcount(self) -> None:
         """
